@@ -54,6 +54,12 @@ dependencies:
   qr_flutter: ^4.1.0
   #dashboard
   fl_chart: ^0.68.0
+  # auth: SHA-256 PIN hashing
+  crypto: ^3.0.6
+  # backup/restore: zip archive support (used by settings_provider)
+  archive: ^3.6.1
+  # ESC/POS receipt generation (pure Dart, works on all platforms incl. web)
+  esc_pos_utils_plus: ^2.0.4
 
 
   # The following adds the Cupertino Icons font to your application.

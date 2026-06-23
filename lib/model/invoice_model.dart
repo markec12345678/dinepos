@@ -55,6 +55,29 @@ class Invoice {
     required this.createdAt,
   });
 
+  /// Convenience getter. Despite the legacy field name `taxRate`, this value
+  /// actually stores the tax **amount** (not a percentage rate). New code
+  /// should prefer [taxAmount] for clarity; the underlying field is kept as
+  /// `taxRate` for Hive backwards-compatibility with existing databases.
+  double get taxAmount => taxRate;
+
+  /// Computes the tax as a percentage rate of the taxable base
+  /// (subtotal - discount). Returns 0 when the base is 0 to avoid NaN.
+  double get taxRatePercent {
+    final base = subtotal - discount;
+    if (base <= 0) return 0;
+    return (taxRate / base) * 100;
+  }
+
+  /// Grand total of the invoice: subtotal + tax - discount.
+  double get grandTotal => subtotal + taxRate - discount;
+
+  /// Remaining balance to be paid: grandTotal - amountPaid.
+  double get dueAmount => grandTotal - amountPaid;
+
+  /// Whether the invoice is fully paid.
+  bool get isPaid => dueAmount.abs() < 0.01;
+
   // FromJson constructor to handle null values in parsing
   factory Invoice.fromJson(Map<String, dynamic> json) {
     return Invoice(

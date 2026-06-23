@@ -1,12 +1,20 @@
+import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_thermal_printer/flutter_thermal_printer.dart';
-import 'package:flutter_thermal_printer/utils/printer.dart';
-import 'package:get/get.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
-import 'dart:developer';
+
+import '../model/business_profile.dart';
+import '../services/printer_service_interface.dart';
 import '../utils/const.dart';
 
+const String _lastPrinterPrefKey = 'last_used_printer_name';
 
+/// Dialog used to scan for thermal printers and send the current invoice
+/// payload to the selected device. Restaurant identity is sourced from
+/// [BusinessProfileProvider]. Uses [PrinterService] so the dialog compiles
+/// on platforms where `flutter_thermal_printer` is unavailable (Web, Linux);
+/// on those platforms the printer list stays empty and printing is a no-op.
 class PrinterSettingsDialog extends StatefulWidget {
   final List<dynamic> invoiceItems;
   final String? name;
@@ -17,7 +25,9 @@ class PrinterSettingsDialog extends StatefulWidget {
   final double tax;
   final double balance;
   final double amountPaid;
+
   const PrinterSettingsDialog({
+    super.key,
     required this.invoiceItems,
     this.name,
     this.address,
@@ -25,7 +35,8 @@ class PrinterSettingsDialog extends StatefulWidget {
     required this.subtotal,
     required this.discount,
     required this.tax,
-    required this.balance, required this.amountPaid,
+    required this.balance,
+    required this.amountPaid,
   });
 
   @override
@@ -33,197 +44,248 @@ class PrinterSettingsDialog extends StatefulWidget {
 }
 
 class _PrinterSettingsDialogState extends State<PrinterSettingsDialog> {
-  final _flutterThermalPrinterPlugin = FlutterThermalPrinter.instance;
-  List<Printer> printers = [];
-  StreamSubscription<List<Printer>>? _devicesStreamSubscription;
+  final PrinterService _service = getPrinterService();
+  List<DiscoveredPrinter> printers = [];
+  StreamSubscription<List<DiscoveredPrinter>>? _sub;
+  bool _scanning = false;
+  String? _lastPrinterName;
 
   @override
   void initState() {
     super.initState();
+    _loadLastPrinter();
     startScan();
-    // initializeBluetooth();
   }
 
+  Future<void> _loadLastPrinter() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() => _lastPrinterName = prefs.getString(_lastPrinterPrefKey));
+  }
 
-
-  void startScan() async {
-    try {
-      _devicesStreamSubscription?.cancel();
-      await _flutterThermalPrinterPlugin.getPrinters(connectionTypes: [
-        ConnectionType.USB,ConnectionType.BLE
-      ]);
-      _devicesStreamSubscription = _flutterThermalPrinterPlugin.devicesStream
-          .listen((List<Printer> event) {
-        log(event.map((e) => e.name).toList().toString());
-        setState(() {
-          printers = event;
-          printers.removeWhere((element) => element.name == null || element.name == ''
-            //  ||
-            // !element.name!.toLowerCase().contains('print')
-          );
-        });
-      });
-      Future.delayed(const Duration(seconds: 2), () {
-        _devicesStreamSubscription?.cancel();
-        _flutterThermalPrinterPlugin.stopScan();
-        setState(() {
-          stopScan();
-        });
-
-      });
-    } catch (e) {
-      print('Error during scan: $e');
+  Future<void> _saveLastPrinter(String? name) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (name != null) {
+      await prefs.setString(_lastPrinterPrefKey, name);
+    } else {
+      await prefs.remove(_lastPrinterPrefKey);
     }
-
-
-
+    if (!mounted) return;
+    setState(() => _lastPrinterName = name);
   }
 
-  stopScan() {
-    _devicesStreamSubscription?.cancel();
-    _flutterThermalPrinterPlugin.stopScan();
+  void startScan() {
+    setState(() => _scanning = true);
+    _sub?.cancel();
+    _sub = _service.startScan().listen((event) {
+      if (!mounted) return;
+      setState(() => printers = event);
+    });
+    // Stop after a generous window (5s) to give slow BLE devices time.
+    Future.delayed(const Duration(seconds: 5), () {
+      if (!mounted) return;
+      stopScan();
+    });
   }
 
-  void getUsbDevices() async {
-    await _flutterThermalPrinterPlugin.getUsbDevices();
+  void stopScan() {
+    _sub?.cancel();
+    _service.stopScan();
+    if (mounted) setState(() => _scanning = false);
   }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    _service.stopScan();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final business = context.watch<BusinessProfileProvider>().profile;
     return Dialog(
-      insetPadding: EdgeInsets.all(20),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10.0),
-      ),
+      insetPadding: const EdgeInsets.all(20),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       child: Padding(
         padding: const EdgeInsets.all(20.0),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.end,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                ElevatedButton(
-                onPressed: () {
-                  startScan();
-                },
-                child: Row(
+                Text(
+                  _scanning
+                      ? 'Scanning…'
+                      : '${printers.length} devices found',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                Row(
                   children: [
-                    Icon(Icons.refresh),
-                    SizedBox(width: 5,),
-                    Text('Get Printers'),
+                    ElevatedButton.icon(
+                      onPressed: _scanning ? null : startScan,
+                      icon: const Icon(Icons.refresh, size: 18),
+                      label: const Text('Scan'),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton.icon(
+                      onPressed: _scanning ? stopScan : null,
+                      icon: const Icon(Icons.stop_circle_outlined, size: 18),
+                      label: const Text('Stop'),
+                    ),
                   ],
                 ),
-              ),
-                SizedBox(width: 10,),
-                ElevatedButton(
-                  onPressed: () {
-                    stopScan();
-                  },
-                  child: Row(
-                    children: [
-                      Icon(Icons.stop_circle_outlined),
-                      SizedBox(width: 5,),
-                      Text('Stop Scan'),
-                    ],
-                  ),
-                ),],
+              ],
             ),
-            SizedBox(height: 10,),
-            Divider(
-              thickness: 2,
-              color: primary2Color,
-            ),
-            Expanded(
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: printers.length,
-                itemBuilder: (context, index) {
-                  return ListTile(
-                    onTap: () async {
-                      final profile = await CapabilityProfile.load();
-                      final generator = Generator(PaperSize.mm58, profile);
-                      List<int> bytes = [];
-                      // Add restaurant name and address
-                      bytes += generator.text('NAAZ RESTAURANT',
-                          styles: PosStyles(align: PosAlign.center, bold: true, height: PosTextSize.size2));
-                      bytes += generator.text('Lilong Bazar - 795135', styles: PosStyles(align: PosAlign.center));
-                      bytes += generator.hr(); // Horizontal line
-                      bytes += generator.text('Invoice To:', styles: PosStyles(bold: true));
-                      bytes += generator.text('Name: ${widget.name}');
-                      bytes += generator.text('Phone: ${widget.phone.isNotEmpty ? widget.phone : 'N/A'}');
-                      bytes += generator.text('Address: ${widget.address}');
-                      bytes += generator.hr();
-                      bytes += generator.text('Item List:----------------------', styles: PosStyles(bold: true));
-                      bytes += generator.text('Name------------RateXQty--Total', styles: PosStyles(bold: true));
-                      // Iterate over the items in the invoice list
-                      int serialNumber = 1;
-                      for (var item in widget.invoiceItems) {
-                        // Assuming each item is a map with keys: name, price, and quantity
-                        bytes += generator.text(
-                          '${serialNumber.toString()})  ${item.itemName }'.padRight(32) + // Item name padded to 20 characters
-                              '${item.price.toStringAsFixed(2)}' + // Price padded to 8 characters
-                              ' x ${item.quantity.toString()}' + // Quantity padded to 4 characters
-                              ' =${(item.price * item.quantity).toStringAsFixed(2)}', // Total padded to 10 characters
-                          styles: PosStyles(align: PosAlign.right, bold: true),
+            const SizedBox(height: 10),
+            Divider(thickness: 2, color: primary2Color),
+            Flexible(
+              child: printers.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.all(40),
+                      child: Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.print_disabled,
+                                size: 48, color: Colors.white54),
+                            const SizedBox(height: 12),
+                            const Text(
+                              'No printers found.',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Tap "Scan" to search, or run on Android/iOS/'
+                              'Windows/macOS for thermal printer support.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.6),
+                                  fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: printers.length,
+                      itemBuilder: (context, index) {
+                        final p = printers[index];
+                        final isLast = _lastPrinterName != null &&
+                            p.name == _lastPrinterName;
+                        return ListTile(
+                          onTap: () => _print(p, business),
+                          title: Text(p.name),
+                          subtitle: Text(isLast
+                              ? "Last used · Connected: ${p.isConnected}"
+                              : "Connected: ${p.isConnected}"),
+                          trailing: Icon(isLast ? Icons.star : Icons.print,
+                              color: isLast ? Colors.amber : null),
                         );
-                        serialNumber++;
-                      }
-                      bytes += generator.hr();
-                      // Subtotal
-                      bytes += generator.text('Subtotal: Rs${widget.subtotal.toStringAsFixed(2)}',
-                          styles: PosStyles(align: PosAlign.right));
-
-// Discount
-                      bytes += generator.text('Discount: Rs${widget.discount.toStringAsFixed(2)}',
-                          styles: PosStyles(align: PosAlign.right));
-
-// Tax "Tax :  ${(invoice.taxRate / (invoice.subtotal - invoice.discount) * 100)}%",
-                      bytes += generator.text("Tax :  ${(widget.tax / (widget.subtotal - widget.discount) * 100)}%",
-                          styles: PosStyles(align: PosAlign.right));
-
-// Balance
-                      print(widget.balance);
-                      bytes += generator.text('Paid: Rs${widget.amountPaid.toStringAsFixed(2)}',
-                          styles: PosStyles(align: PosAlign.right));
-
-                        bytes += generator.text(
-                          'Balance: Rs${widget.balance.toStringAsFixed(2)}',
-                          styles: PosStyles(align: PosAlign.right),
-                        );
-
-                      bytes += generator.emptyLines(1);
-
-                      bytes += generator.text('Thank You, Visit Again!',
-                          styles: PosStyles(align: PosAlign.center, bold: true));
-                      bytes += generator.drawer();
-                      bytes += generator.cut();
-                      await _flutterThermalPrinterPlugin.printData(
-                        printers[index],
-                        bytes,
-
-                      );
-                      Get.back();
-                    },
-                    title: Text(printers[index].name ?? 'No Name'),
-                    subtitle: Text("Connected: ${printers[index].isConnected}"),
-                    trailing: Icon(Icons.print),
-                  );
-                },
-              ),
+                      },
+                    ),
             ),
+            const SizedBox(height: 10),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 ElevatedButton(
-                  onPressed: () => Get.back(),
-                  child: Text("Cancel"),
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text("Cancel"),
                 ),
               ],
             ),
           ],
         ),
       ),
-
     );
+  }
+
+  Future<void> _print(
+      DiscoveredPrinter printer, BusinessProfile business) async {
+    try {
+      final profile = await CapabilityProfile.load();
+      final paperSize = business.paperSizeMm == 80
+          ? PaperSize.mm80
+          : PaperSize.mm58;
+      final generator = Generator(paperSize, profile);
+      List<int> bytes = [];
+      bytes += generator.text(business.restaurantName,
+          styles: const PosStyles(
+              align: PosAlign.center,
+              bold: true,
+              height: PosTextSize.size2));
+      if (business.address.isNotEmpty) {
+        bytes += generator.text(business.address,
+            styles: const PosStyles(align: PosAlign.center));
+      }
+      if (business.phone.isNotEmpty) {
+        bytes += generator.text('Ph: ${business.phone}',
+            styles: const PosStyles(align: PosAlign.center));
+      }
+      bytes += generator.hr();
+      bytes += generator.text('Invoice To:',
+          styles: const PosStyles(bold: true));
+      bytes += generator.text('Name: ${widget.name ?? 'N/A'}');
+      bytes += generator.text(
+          'Phone: ${widget.phone.isNotEmpty ? widget.phone : 'N/A'}');
+      if ((widget.address ?? '').isNotEmpty) {
+        bytes += generator.text('Address: ${widget.address}');
+      }
+      bytes += generator.hr();
+      bytes += generator.text('Item List:',
+          styles: const PosStyles(bold: true));
+      int serial = 1;
+      for (var item in widget.invoiceItems) {
+        final lineTotal = (item.price * item.quantity) as double;
+        bytes += generator.text(
+          '${serial.toString().padLeft(2, ' ')}  ${item.itemName}'
+          '  ${item.price.toStringAsFixed(2)} x ${item.quantity}'
+          ' = ${lineTotal.toStringAsFixed(2)}',
+          styles: const PosStyles(align: PosAlign.left),
+        );
+        serial++;
+      }
+      bytes += generator.hr();
+      bytes += generator.text(
+          'Subtotal: ${business.currencySymbol}${widget.subtotal.toStringAsFixed(2)}',
+          styles: const PosStyles(align: PosAlign.right));
+      bytes += generator.text(
+          'Discount: ${business.currencySymbol}${widget.discount.toStringAsFixed(2)}',
+          styles: const PosStyles(align: PosAlign.right));
+      final base = widget.subtotal - widget.discount;
+      final taxPct = base > 0 ? (widget.tax / base) * 100 : 0.0;
+      bytes += generator.text('Tax: ${taxPct.toStringAsFixed(2)}%',
+          styles: const PosStyles(align: PosAlign.right));
+      bytes += generator.text(
+          'Paid: ${business.currencySymbol}${widget.amountPaid.toStringAsFixed(2)}',
+          styles: const PosStyles(align: PosAlign.right));
+      bytes += generator.text(
+          'Balance: ${business.currencySymbol}${widget.balance.toStringAsFixed(2)}',
+          styles: const PosStyles(align: PosAlign.right));
+      bytes += generator.emptyLines(1);
+      bytes += generator.text(business.footerText,
+          styles:
+              const PosStyles(align: PosAlign.center, bold: true));
+      bytes += generator.cut();
+
+      await _service.printData(printer, bytes);
+      await _saveLastPrinter(printer.name);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Print job sent.')),
+        );
+        Navigator.of(context).pop();
+      }
+    } catch (e) {
+      debugPrint('Print error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Print failed: $e')),
+        );
+      }
+    }
   }
 }

@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import '../model/business_profile.dart';
 import '../model/invoice_model.dart';
 import '../provider/InvoiceProvider.dart';
 import '../utils/const.dart';
 import '../utils/responsive.dart';
 import '../widget/add_customer_dialog.dart';
-import '../widget/add_items.dart';
 import '../widget/papercut_design.dart';
 import '../widget/printer_settings-dialog.dart';
 
@@ -83,14 +82,14 @@ class _SaleBillingState extends State<SaleBilling> {
                       height:
                           defaultPadding), // Add spacing between the title row and the content
                   Consumer<InvoiceProvider>(
-                    builder: (context, menuProvider, _) {
-                      final menuItems = menuProvider.invoices.where((item) {
+                    builder: (context, invoiceProvider, _) {
+                      final invoices = invoiceProvider.invoices.where((item) {
                         final itemName = item.name.toLowerCase();
                         return itemName.contains(searchQuery.toLowerCase());
                       }).toList();
 
-                      if (menuItems.isEmpty) {
-                        return Center(child: Text("No menu items available"));
+                      if (invoices.isEmpty) {
+                        return Center(child: Text("No invoices available"));
                       }
 
                       return SizedBox(
@@ -107,9 +106,9 @@ class _SaleBillingState extends State<SaleBilling> {
                             DataColumn(label: Text("Actions")),
                           ],
                           rows: List.generate(
-                            menuItems.length,
+                            invoices.length,
                             (index) => invoiceDataRow(
-                                menuItems[index], index, menuProvider, context),
+                                invoices[index], index, invoiceProvider, context),
                           ),
                         ),
                       );
@@ -136,14 +135,9 @@ class _SaleBillingState extends State<SaleBilling> {
         )),
         DataCell(Text(invoice.paymentType)),
         DataCell(Text("₹ ${invoice.amountPaid}")),
+        DataCell(Text("₹ ${invoice.grandTotal}")),
         DataCell(
-            Text("₹ ${invoice.subtotal + invoice.taxRate - invoice.discount}")),
-        DataCell(
-          invoice.subtotal +
-                      invoice.taxRate -
-                      invoice.discount -
-                      invoice.amountPaid ==
-                  0
+          invoice.isPaid
               ? Text(
                   'Paid',
                   style: TextStyle(color: Colors.green),
@@ -151,14 +145,13 @@ class _SaleBillingState extends State<SaleBilling> {
               : Row(
                   children: [
                     Text(
-                      "₹ ${invoice.subtotal + invoice.taxRate - invoice.discount - invoice.amountPaid}",
+                      "₹ ${invoice.dueAmount}",
                       style: TextStyle(color: Colors.red),
                     ),
                     IconButton(
                       icon: Icon(Icons.payment, color: Colors.blue),
                       onPressed: () {
-                        // Open the dialog to pay now
-                        _showPaymentSelectionCard(context,invoice.subtotal + invoice.taxRate - invoice.discount - invoice.amountPaid);
+                        _showPaymentSelectionCard(context, invoice.dueAmount);
                       },
                     ),
                   ],
@@ -205,10 +198,10 @@ class _SaleBillingState extends State<SaleBilling> {
     );
   }
   void _showPaymentSelectionCard(BuildContext context, double dueamt) {
+    final business = context.read<BusinessProfileProvider>().profile;
     showDialog(
       context: context,
       builder: (BuildContext context) {
-        String contentText = "Content of Dialog";
         return StatefulBuilder(
           builder: (context, setState) {
             return AlertDialog(
@@ -223,7 +216,6 @@ class _SaleBillingState extends State<SaleBilling> {
                       style: TextStyle(color: Colors.white),
                     ),
                     SizedBox(height: 20),
-                    // Custom card with radio buttons for Cash/UPI selection
                     Card(
                       color: secondary2Color,
                       elevation: 5,
@@ -231,15 +223,24 @@ class _SaleBillingState extends State<SaleBilling> {
                         padding: const EdgeInsets.all(8.0),
                         child: Column(
                           children: [
-                            if (paymentMethod == 'UPI')
+                            if (paymentMethod == 'UPI' && business.upiId.isNotEmpty)
                               SizedBox(
                                 width: 150,
                                 height: 150,
                                 child: QrImageView(
-                                  data: 'upi://pay?pa=9233784045@okbizaxis&am=$dueamt&pn=PRINTONEX&mc=7622&aid=uGICAgMDC1pr1fQ&ver=01&mode=01&tr=BCR2DN4T7L6LRW2G',
+                                  data: business.upiDeepLink(dueamt),
                                   version: QrVersions.auto,
-backgroundColor: Colors.white,
-size: 150,
+                                  backgroundColor: Colors.white,
+                                  size: 150,
+                                ),
+                              ),
+                            if (paymentMethod == 'UPI' && business.upiId.isEmpty)
+                              Padding(
+                                padding: const EdgeInsets.all(16.0),
+                                child: Text(
+                                  'UPI not configured. Set it up in Business Profile.',
+                                  style: TextStyle(color: Colors.amber),
+                                  textAlign: TextAlign.center,
                                 ),
                               ),
                             Row(
@@ -257,10 +258,8 @@ size: 150,
                                   value: 'UPI',
                                   setState: setState,
                                 ),
-
                               ],
                             ),
-
                           ],
                         ),
                       ),
@@ -275,8 +274,7 @@ size: 150,
                 ),
                 TextButton(
                   onPressed: () {
-                    // Handle the payment logic here
-                    print("Payment Method: $paymentMethod");
+                    debugPrint("Payment Method: $paymentMethod");
                     Navigator.of(context).pop();
                   },
                   child: Text("Pay", style: TextStyle(color: Colors.white)),
@@ -489,7 +487,7 @@ size: 150,
                           ),
                         ),
                         Text(
-                          "Tax :  ${(invoice.taxRate / (invoice.subtotal - invoice.discount) * 100)}%",
+                          "Tax :  ${invoice.taxRatePercent.toStringAsFixed(2)}%",
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
@@ -506,15 +504,11 @@ size: 150,
                         ),
 
                         Text(
-                          "Due : ₹ ${(invoice.subtotal + invoice.taxRate - invoice.discount - invoice.amountPaid)}",
+                          "Due : ₹ ${invoice.dueAmount}",
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
-                            color: invoice.subtotal +
-                                invoice.taxRate -
-                                invoice.discount -
-                                invoice.amountPaid ==
-                                0
+                            color: invoice.isPaid
                                 ? Colors.green
                                 : Colors.red,
                           ),
@@ -572,9 +566,9 @@ size: 150,
                 double invoiceSubtotal = invoice.subtotal;       // Invoice subtotal before discounts/taxes
                 double invoiceDiscount = invoice.discount;       // Discount applied
                 double invoiceTax = invoice.taxRate;             // Tax applied
-                double remainingBalance = invoice.subtotal + invoice.taxRate - invoice.discount - invoice.amountPaid; // Balance due after payment
+                double remainingBalance = invoice.dueAmount;     // Balance due after payment
                 double paidAmount = invoice.amountPaid;          // Amount already paid
-                Get.back();
+                Navigator.of(context).pop();
                 // Show the PrinterSettingsDialog
                 showDialog(
                   context: context,

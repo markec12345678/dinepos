@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:get/get.dart';
 
 import '../pages/create_invoice.dart';
 import '../utils/const.dart';
@@ -63,14 +62,15 @@ class _AddCustomerState extends State<AddCustomer> {
               ElevatedButton(
                 onPressed: () {
                   if (_formKey.currentState!.validate()) {
-                    // Navigate to InvoiceMaking page with customer details
-                    Get.to(() => CreateInvoice(name: _nameController.text,
-                      phone: _phoneController.text,
-                      address: _addressController.text,), arguments: {
-                      'name': _nameController.text,
-                      'phone': _phoneController.text,
-                      'address': _addressController.text,
-                    });
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => CreateInvoice(
+                          name: _nameController.text,
+                          phone: _phoneController.text,
+                          address: _addressController.text,
+                        ),
+                      ),
+                    );
                   }
                 },
                 child: Text('Submit'),

@@ -1,10 +1,9 @@
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:hive_flutter/hive_flutter.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import '../provider/MenuProvider.dart'; // Import MenuProvider
+import '../utils/image_storage.dart';
 
 class EditMenuItemDialog extends StatefulWidget {
   final int id; // The Hive index of the menu item
@@ -49,7 +48,6 @@ class _EditMenuItemDialogState extends State<EditMenuItemDialog> {
 
   @override
   void initState() {
-    print(widget.id);
     super.initState();
     name = widget.name;
     price = widget.price;
@@ -57,29 +55,16 @@ class _EditMenuItemDialogState extends State<EditMenuItemDialog> {
     stock = widget.stock;
     category = widget.category;
     subCategory = widget.subCategory;
-    unitType = widget.unitType!;
+    unitType = widget.unitType ?? 'Full';
     description = widget.description ?? ''; // Initialize description
-    _imageFile = widget.imageUrl != null && widget.imageUrl!.startsWith('http')
-        ? null  // If it's a URL, we don't initialize a local file
-        : File(widget.imageUrl!);  // If it's a local file path, initialize the file
-
+    final url = widget.imageUrl ?? '';
+    _imageFile = url.startsWith('http') ? null : (url.isNotEmpty ? File(url) : null);
   }
 
-  Future<Directory> getWritableDirectory() async {
-    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-      // Use the user's home directory or a custom folder
-      final home = Directory.current;
-      return Directory('${home.path}/dbImage')..createSync(recursive: true);
-    } else {
-      // Use standard app document directory for mobile platforms
-      return getApplicationDocumentsDirectory();
-    }
-  }
   // Method to pick an image from the gallery or camera
   Future<void> _pickImage() async {
     try {
-      // Pick an image file
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
+      FilePickerResult? result = await FilePicker.pickFiles(
         type: FileType.image,
       );
 
@@ -89,23 +74,14 @@ class _EditMenuItemDialogState extends State<EditMenuItemDialog> {
         if (filePath != null) {
           final originalFile = File(filePath);
 
-          // Check if file exists
           if (await originalFile.exists()) {
-            // Get writable directory based on platform
-            final directory = await getWritableDirectory();
             final fileName = result.files.single.name;
+            final targetFilePath = await ImageStorage.copyPickedImage(filePath, fileName);
 
-            // Construct the target path
-            final targetFilePath = '${directory.path}/$fileName';
-
-            // Copy the file to the target directory
-            final copiedFile = await originalFile.copy(targetFilePath);
-
-            // Update the state with the new file path
             setState(() {
-              _imageFile = copiedFile;
+              _imageFile = targetFilePath != null ? File(targetFilePath) : null;
             });
-            print('File copied to: $targetFilePath');
+            debugPrint('File copied to: $targetFilePath');
           } else {
             throw Exception('File not found at path: $filePath');
           }
@@ -113,10 +89,15 @@ class _EditMenuItemDialogState extends State<EditMenuItemDialog> {
           throw Exception('Selected file path is null.');
         }
       } else {
-        print('No file selected.');
+        debugPrint('No file selected.');
       }
     } catch (e) {
-      print('An error occurred while picking the file: $e');
+      debugPrint('An error occurred while picking the file: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Image pick failed: $e')),
+        );
+      }
     }
   }
 
@@ -125,19 +106,19 @@ class _EditMenuItemDialogState extends State<EditMenuItemDialog> {
     if (_formKey.currentState!.validate()) {
       _formKey.currentState!.save();
 
-      // Update the menu item in the provider
       menuProvider.updateMenuItem(
-        widget.id, // Use the id from the dialog parameter
+        widget.id,
         name,
         price,
         offerPrice,
         stock,
         category,
         subCategory,
-        _imageFile?.path, // Save the image path
-        description, // Pass the description to the provider
+        _imageFile?.path,
+        description,
+        unitType: unitType,
       );
-      Navigator.of(context).pop(); // Close the dialog
+      Navigator.of(context).pop();
     }
   }
 
@@ -227,10 +208,19 @@ class _EditMenuItemDialogState extends State<EditMenuItemDialog> {
                 const SizedBox(height: 10),
                 TextFormField(
                   initialValue: description,
-                  decoration: InputDecoration(labelText: 'Description'),
+                  decoration: const InputDecoration(labelText: 'Description'),
                   validator: (value) =>
-                  value == null || value.isEmpty ? 'Description is required' : null,
+                      value == null || value.isEmpty ? 'Description is required' : null,
                   onSaved: (value) => description = value!,
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  value: unitType,
+                  decoration: const InputDecoration(labelText: 'Unit Type'),
+                  items: const ['Full', 'Half', 'Kg', 'Piece']
+                      .map((u) => DropdownMenuItem(value: u, child: Text(u)))
+                      .toList(),
+                  onChanged: (value) => setState(() => unitType = value ?? 'Full'),
                 ),
                 const SizedBox(height: 20),
 
@@ -276,28 +266,14 @@ class _EditMenuItemDialogState extends State<EditMenuItemDialog> {
   }
 }
 Widget _widgetImage(File? imageFile, String? imageUrl) {
-  print("imageFile:- $imageFile imageUrl:- $imageUrl");
-
   // Check if imageFile is null or empty path
   if (imageFile == null || imageFile.path.isEmpty) {
-    // Check if imageUrl is provided and valid
     if (imageUrl != null && imageUrl.isNotEmpty) {
-      // Display remote image if URL is provided
-      return Image.network(
-        imageUrl,
-        fit: BoxFit.cover,
-      );
+      return Image.network(imageUrl, fit: BoxFit.cover);
     } else {
-      // Show placeholder text if no image or URL is available
-      return Center(
-        child: Text("Tap to Update an image"),
-      );
+      return const Center(child: Text("Tap to update an image"));
     }
   } else {
-    // Display local image file
-    return Image.file(
-      imageFile,
-      fit: BoxFit.cover,
-    );
+    return Image.file(imageFile, fit: BoxFit.cover);
   }
 }

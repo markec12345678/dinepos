@@ -4,10 +4,8 @@ import 'dart:io';
 import 'package:dinepos/provider/InvoiceProvider.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:hive/hive.dart';
 import 'package:archive/archive_io.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:share_plus/share_plus.dart';
 
 import 'MenuProvider.dart';
 
@@ -122,7 +120,7 @@ class SettingsProvider with ChangeNotifier {
       for (int i = 0; i < imageFiles.length; i++) {
         var image = imageFiles[i];
         if (image is File) { // Ensure only files are processed
-          encoder.addFile(image, '${image.path.split('/').last}');
+          encoder.addFile(image, image.path.split('/').last);
         }
         backupProgress = ((i + 1) / imageFiles.length) * 100;
         notifyListeners();
@@ -134,19 +132,19 @@ class SettingsProvider with ChangeNotifier {
       if (await jsonFile.exists()) {
         await jsonFile.delete();
       }
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text('Backup created successfully at $zipFilePath'),
       ));
-      print(zipFilePath);
-
-      // await Share.shareXFiles([XFile(zipFilePath.path)]);
+      debugPrint(zipFilePath);
 
 
     } catch (e) {
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text('Backup failed: $e'),
       ));
-      print('Error during backup: $e');
+      debugPrint('Error during backup: $e');
     }
   }
 
@@ -157,7 +155,7 @@ class SettingsProvider with ChangeNotifier {
       throw Exception('Unable to access writeable directory on Android.');
     }
     try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
+      FilePickerResult? result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['zip'],
       );
@@ -187,18 +185,16 @@ class SettingsProvider with ChangeNotifier {
           }
         }
         final jsonFile = File('$path/database_backup.json');
-        print(jsonFile);
         if (jsonFile.existsSync()) {
           String jsonData = jsonFile.readAsStringSync();
           Map<String, dynamic> database = jsonDecode(jsonData);
 
 
-          // Delegate restoration to the provider
           await menuProvider.restoreMenuItems(database['menu_items']);
           await invoiceProvider.restoreInvoices(database['invoices']);
           await invoiceProvider.restoreInvoiceItems(database['invoice_items']);
           notifyListeners();
-          print('Restore completed.');
+          debugPrint('Restore completed.');
         }
       }
     } catch (e) {

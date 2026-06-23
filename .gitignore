@@ -41,3 +41,17 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Local database & backups (contain business/customer data — never commit)
+/dinepos_db2/
+**/dinepos_db2/
+**/database_backup.json
+**/dinepos_backup.zip
+
+# Menu item images (user-uploaded content)
+/dbImage/
+
+# Release signing keystore
+key.properties
+*.keystore
+*.jks

@@ -143,7 +143,7 @@ class _MenuItemsScreenState extends State<MenuItemsScreen> {
                                // Hide this column for mobile devices
                               menuItem.imageUrl.isNotEmpty
                                   ? Image.file(
-                                File(menuItem.imageUrl ?? 'https://via.placeholder.com/40'),
+                                File(menuItem.imageUrl),
                                 fit: BoxFit.cover,
                                 height: imageSize,
                                 width: imageSize,
@@ -171,7 +171,7 @@ class _MenuItemsScreenState extends State<MenuItemsScreen> {
                   borderRadius: BorderRadius.circular(20), // Rounded corners
                   child: menuItem.imageUrl.isNotEmpty
                       ? Image.file(
-                    File(menuItem.imageUrl ?? 'https://via.placeholder.com/40'), // Use File class to load the local image
+                    File(menuItem.imageUrl), // Use File class to load the local image
                     height: 40,
                     width: 40,
                     fit: BoxFit.cover,
@@ -200,9 +200,9 @@ class _MenuItemsScreenState extends State<MenuItemsScreen> {
           Responsive.isMobile(context)
               ? Column( // For mobile, use Column (stacked vertically)
             children: [
-              if (menuItem.offerPrice != null && menuItem.offerPrice > 0)
+              if (menuItem.offerPrice > 0)
                 Text(
-                  '\$${menuItem.price}',
+                  '$currencySymbol ${menuItem.price}',
                   style: TextStyle(
                     fontSize: 14,
                     color: Colors.grey, // Grey color for original price
@@ -211,9 +211,9 @@ class _MenuItemsScreenState extends State<MenuItemsScreen> {
                 ),
 
               // Show offer price in bold and green if available
-              if (menuItem.offerPrice != null && menuItem.offerPrice > 0)
+              if (menuItem.offerPrice > 0)
                 Text(
-                  '$Symbol ${menuItem.offerPrice}',
+                  '$currencySymbol ${menuItem.offerPrice}',
                   style: TextStyle(
                     fontSize: 16,
                     color: Colors.green, // Green color for offer price
@@ -221,9 +221,9 @@ class _MenuItemsScreenState extends State<MenuItemsScreen> {
                   ),
                 ),
               // If no offer price, just display the normal price
-              if (menuItem.offerPrice == null || menuItem.offerPrice <= 0)
+              if (menuItem.offerPrice <= 0)
                 Text(
-                  '$Symbol ${menuItem.price}',
+                  '$currencySymbol ${menuItem.price}',
                   style: TextStyle(
                     fontSize: 16,
                     color: Colors.black, // Regular price in black
@@ -233,9 +233,9 @@ class _MenuItemsScreenState extends State<MenuItemsScreen> {
           )
               : Row( // For larger screens, use Row (horizontal alignment)
             children: [
-              if (menuItem.offerPrice != null && menuItem.offerPrice > 0)
+              if (menuItem.offerPrice > 0)
                 Text(
-                  '$Symbol ${menuItem.price}',
+                  '$currencySymbol ${menuItem.price}',
                   style: TextStyle(
                     fontSize: 14,
                     color: Colors.grey, // Grey color for original price
@@ -245,9 +245,9 @@ class _MenuItemsScreenState extends State<MenuItemsScreen> {
               SizedBox(width: 5), // Space between the prices on large screens
 
               // Show offer price in bold and green if available
-              if (menuItem.offerPrice != null && menuItem.offerPrice > 0)
+              if (menuItem.offerPrice > 0)
                 Text(
-                  '$Symbol ${menuItem.offerPrice}',
+                  '$currencySymbol ${menuItem.offerPrice}',
                   style: TextStyle(
                     fontSize: 18,
                     color: Colors.green, // Green color for offer price
@@ -255,9 +255,9 @@ class _MenuItemsScreenState extends State<MenuItemsScreen> {
                   ),
                 ),
               // If no offer price, just display the normal price
-              if (menuItem.offerPrice == null || menuItem.offerPrice <= 0)
+              if (menuItem.offerPrice <= 0)
                 Text(
-                  '$Symbol ${menuItem.price}',
+                  '$currencySymbol ${menuItem.price}',
                   style: TextStyle(
                     fontSize: 16,
                     color: Colors.black, // Regular price in black

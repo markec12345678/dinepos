@@ -25,8 +25,8 @@ class Dashboard extends StatelessWidget {
 
     for (var invoice in invoiceProvider.invoices) {
       DateTime invoiceDate = invoice.createdAt;
-      double invoiceTotal = invoice.subtotal + invoice.taxRate - invoice.discount;
-      double invoiceDue = invoiceTotal - invoice.amountPaid;
+      double invoiceTotal = invoice.grandTotal;
+      double invoiceDue = invoice.dueAmount;
 
       if (invoiceDate.year == now.year) {
         yearlySales += invoiceTotal;
@@ -45,7 +45,7 @@ class Dashboard extends StatelessWidget {
       }
     }
 
-    final Size _size = MediaQuery.of(context).size;
+    final Size size = MediaQuery.of(context).size;
 
     return Expanded(
       child: Padding(
@@ -64,15 +64,18 @@ class Dashboard extends StatelessWidget {
                         Container(
                           // Ensure consistent height if needed
                           constraints: BoxConstraints(
-                            minHeight: 150, // Adjust this value based on your needs
+                            minHeight: 150,
                           ),
-                          child: Row(
-                            children: [
-                              _buildSummaryCard('Today Sales', todaySales),
-                              _buildSummaryCard('Monthly Sales', monthlySales),
-                              _buildSummaryCard('Yearly Sales', yearlySales),
-                              _buildSummaryCard('Total Due', totalDue),
-                            ],
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: [
+                                _buildSummaryCard('Today Sales', todaySales),
+                                _buildSummaryCard('Monthly Sales', monthlySales),
+                                _buildSummaryCard('Yearly Sales', yearlySales),
+                                _buildSummaryCard('Total Due', totalDue),
+                              ],
+                            ),
                           ),
                         ),
                         SizedBox(height: defaultPadding),

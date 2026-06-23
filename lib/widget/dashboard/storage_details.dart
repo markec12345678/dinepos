@@ -1,15 +1,41 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../../provider/InvoiceProvider.dart';
 import '../../utils/const.dart';
 import 'chart.dart';
 
+/// Side-panel summary shown on the dashboard. Previously displayed fake
+/// "1.3GB / 1328 Files" template data; now shows real sales metrics derived
+/// from the invoice provider.
 class StorageDetails extends StatelessWidget {
-  const StorageDetails({
-    Key? key,
-  }) : super(key: key);
+  const StorageDetails({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final invoices = context.watch<InvoiceProvider>().invoices;
+    final now = DateTime.now();
+
+    double todaySales = 0;
+    double cashSales = 0;
+    double upiSales = 0;
+    double yearlySales = 0;
+    for (final inv in invoices) {
+      final total = inv.grandTotal;
+      if (inv.createdAt.year == now.year) {
+        yearlySales += total;
+        if (inv.createdAt.month == now.month &&
+            inv.createdAt.day == now.day) {
+          todaySales += total;
+        }
+      }
+      if (inv.paymentType == 'Cash') {
+        cashSales += total;
+      } else if (inv.paymentType == 'UPI') {
+        upiSales += total;
+      }
+    }
+
     return Container(
       padding: EdgeInsets.all(defaultPadding),
       decoration: BoxDecoration(
@@ -19,38 +45,39 @@ class StorageDetails extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            "Storage Details",
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w500,
-            ),
+          const Text(
+            "Sales Breakdown",
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
           ),
           SizedBox(height: defaultPadding),
-          Chart(),
-          StorageInfoCard(
-            icon: Icons.insert_drive_file,
-            title: "Today Sales",
-            amountOfFiles: "1.3GB",
-            numOfFiles: 1328,
+          // Payment-method pie chart (cash vs UPI vs other).
+          SizedBox(
+            height: 160,
+            child: Chart(),
           ),
           StorageInfoCard(
-            icon: Icons.perm_media,
-            title: "Today Expenses",
-            amountOfFiles: "15.3GB",
-            numOfFiles: 1328,
+            icon: Icons.today,
+            title: "Today's Sales",
+            amount: '₹${todaySales.toStringAsFixed(2)}',
+            subtitle: '${invoices.where((i) => i.createdAt.day == now.day && i.createdAt.month == now.month && i.createdAt.year == now.year).length} invoices',
           ),
           StorageInfoCard(
-            icon: Icons.folder,
-            title: "Cash",
-            amountOfFiles: "1.3GB",
-            numOfFiles: 1328,
+            icon: Icons.attach_money,
+            title: "Cash Sales",
+            amount: '₹${cashSales.toStringAsFixed(2)}',
+            subtitle: 'All time',
           ),
           StorageInfoCard(
-            icon: Icons.help_outline,
-            title: "Finalcial Year",
-            amountOfFiles: "1.3GB",
-            numOfFiles: 140,
+            icon: Icons.qr_code,
+            title: "UPI Sales",
+            amount: '₹${upiSales.toStringAsFixed(2)}',
+            subtitle: 'All time',
+          ),
+          StorageInfoCard(
+            icon: Icons.calendar_today,
+            title: "This Year",
+            amount: '₹${yearlySales.toStringAsFixed(2)}',
+            subtitle: '${now.year}',
           ),
         ],
       ),
@@ -60,16 +87,17 @@ class StorageDetails extends StatelessWidget {
 
 class StorageInfoCard extends StatelessWidget {
   const StorageInfoCard({
-    Key? key,
+    super.key,
     required this.title,
     required this.icon,
-    required this.amountOfFiles,
-    required this.numOfFiles,
-  }) : super(key: key);
+    required this.amount,
+    required this.subtitle,
+  });
 
-  final String title, amountOfFiles;
+  final String title;
+  final String amount;
+  final String subtitle;
   final IconData icon;
-  final int numOfFiles;
 
   @override
   Widget build(BuildContext context) {
@@ -77,7 +105,7 @@ class StorageInfoCard extends StatelessWidget {
       margin: EdgeInsets.only(top: defaultPadding),
       padding: EdgeInsets.all(defaultPadding),
       decoration: BoxDecoration(
-        border: Border.all(width: 2, color: primaryColor.withOpacity(0.15)),
+        border: Border.all(width: 2, color: primaryColor.withValues(alpha: 0.15)),
         borderRadius: const BorderRadius.all(
           Radius.circular(defaultPadding),
         ),
@@ -91,23 +119,19 @@ class StorageInfoCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
                   Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  Text(
-                    "$numOfFiles Files",
+                    subtitle,
                     style: Theme.of(context)
                         .textTheme
-                        .bodySmall!
-                        .copyWith(color: Colors.white70),
+                        .bodySmall
+                        ?.copyWith(color: Colors.white70),
                   ),
                 ],
               ),
             ),
           ),
-          Text(amountOfFiles)
+          Text(amount, style: const TextStyle(fontWeight: FontWeight.bold)),
         ],
       ),
     );

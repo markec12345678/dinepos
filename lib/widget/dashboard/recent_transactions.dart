@@ -63,26 +63,16 @@ class RecentTransactions extends StatelessWidget {
         )),
         DataCell(Text(invoice.paymentType)),
         DataCell(Text("₹ ${invoice.amountPaid}")),
+        DataCell(Text("₹ ${invoice.grandTotal}")),
         DataCell(
-            Text("₹ ${invoice.subtotal + invoice.taxRate - invoice.discount}")),
-        DataCell(
-          invoice.subtotal +
-              invoice.taxRate -
-              invoice.discount -
-              invoice.amountPaid ==
-              0
+          invoice.isPaid
               ? Text(
             'Paid',
             style: TextStyle(color: Colors.green),
           )
-              : Row(
-            children: [
-              Text(
-                "₹ ${invoice.subtotal + invoice.taxRate - invoice.discount - invoice.amountPaid}",
-                style: TextStyle(color: Colors.red),
-              ),
-
-            ],
+              : Text(
+            "₹ ${invoice.dueAmount}",
+            style: TextStyle(color: Colors.red),
           ),
         ),
 

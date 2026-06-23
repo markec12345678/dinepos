@@ -22,15 +22,30 @@ android {
     defaultConfig {
         applicationId = "com.kangleiinovations.dinepos"
         minSdk = 22
-        targetSdk = 33
+        targetSdk = 34
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
     buildTypes {
         release {
-            // Use debug signing for release build temporarily
-            signingConfig = signingConfigs.debug
+            // Release signing: reads keystore from a properties file if present,
+            // otherwise falls back to debug signing for local dev builds.
+            // Create `key.properties` with storeFile/storePassword/keyAlias/keyPassword
+            // to ship signed release builds.
+            def keystoreProperties = new Properties()
+            def keystorePropertiesFile = rootProject.file('key.properties')
+            if (keystorePropertiesFile.exists()) {
+                keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+                signingConfig = signingConfigs.create('release') {
+                    storeFile = file(keystoreProperties['storeFile'])
+                    storePassword = keystoreProperties['storePassword']
+                    keyAlias = keystoreProperties['keyAlias']
+                    keyPassword = keystoreProperties['keyPassword']
+                }
+            } else {
+                signingConfig = signingConfigs.debug
+            }
         }
     }
 }

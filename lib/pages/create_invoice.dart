@@ -1,13 +1,13 @@
 import 'dart:developer';
-import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:get/get.dart';
 import 'package:provider/provider.dart';
+import '../model/business_profile.dart';
 import '../model/invoice_items_model.dart';
 import '../model/invoice_model.dart';
 import '../model/menuItem.dart';
 import '../provider/InvoiceProvider.dart';
 import '../provider/MenuProvider.dart';
+import '../provider/auth_provider.dart';
 import '../utils/const.dart';
 import '../utils/responsive.dart';
 import '../widget/menu_gridview.dart';
@@ -129,14 +129,8 @@ class _CreateInvoiceState extends State<CreateInvoice> {
 
 
 
-  int generateRandomTimestamp() {
-    Random random = Random();
-
-    // Generate a random number between 1 and 1,000,000
-    int timestamp = random.nextInt(1000000000) + 1;  // Ensures the number is between 1 and 1,000,000
-
-    return timestamp;
-  }
+  // Note: invoice IDs are now auto-assigned by InvoiceProvider.addInvoice
+  // (monotonic increment) — see _submitOrder.
   Future<void> _submitOrder(
       {required double subtotal,
       required String phone,
@@ -147,46 +141,53 @@ class _CreateInvoiceState extends State<CreateInvoice> {
       required List<MenuItem> invoiceItems,
       required double discount}) async {
     try {
-      Get.back();
+      Navigator.of(context).pop();
 
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Don\'t forget to collect payment.'),
           duration: Duration(seconds: 2),
         ),
       );
-print(DateTime.now().millisecondsSinceEpoch);
-      // Generate random ID for Invoice
-      int invoiceId = generateRandomTimestamp();
+      final auth = context.read<AuthProvider>();
+      final userIdStr = auth.currentUser?.id.toString() ?? 'anonymous';
+      // Create the invoice with id=0 so the provider assigns a stable
+      // auto-incremented id (no more random collisions).
       Invoice invoice = Invoice(
-        id: invoiceId, // Unique ID
-        userId: 'U123456', // Replace with actual user ID
-        name: name ?? "", // Customer name
-        phone: phone, // Customer phone
-        address: address ?? "", // Customer address
-        status: 'Pending', // Order status
-        subtotal: subtotal, // Subtotal
-        discount: discount, // Discount
-        taxRate: taxAmount, // Tax rate
-        amountPaid: subtotal + taxAmount - discount - balance, // Amount paid
-        paymentType: 'Cash', // Payment type
+        id: 0,
+        userId: userIdStr,
+        name: name ?? "",
+        phone: phone,
+        address: address ?? "",
+        status: 'Pending',
+        subtotal: subtotal,
+        discount: discount,
+        taxRate: taxAmount,
+        amountPaid: subtotal + taxAmount - discount - balance,
+        paymentType: selectedPaymentType,
         createdAt: DateTime.now(),
       );
 
-      // Save the invoice using the provider
+      // Save the invoice; provider assigns the real id.
       final invoiceProvider =
           Provider.of<InvoiceProvider>(context, listen: false);
       invoiceProvider.addInvoice(invoice);
 
-      // Convert and save each selected MenuItem as an InvoiceItem
+      // Resolve the assigned id (last inserted by provider with id 0).
+      final assignedId = invoiceProvider.invoices.isNotEmpty
+          ? invoiceProvider.invoices.last.id
+          : 0;
+
+      // Save each line item with total = price * quantity (was `+`, now `*`).
       for (MenuItem menuItem in invoiceItems) {
         InvoiceItem invoiceItem = InvoiceItem(
-          id: generateRandomTimestamp(),
-          invoiceId: invoice.id.toString(), // Link to the invoice
-          itemName: menuItem.itemName, // Name of the item
-          price: menuItem.price, // Price of the item
+          id: null,
+          invoiceId: assignedId.toString(),
+          itemName: menuItem.itemName,
+          price: menuItem.price,
           quantity: menuItem.quantity,
-          total: menuItem.price+menuItem.quantity, // Quantity of the item
+          total: menuItem.price * menuItem.quantity,
         );
         invoiceProvider.addInvoiceItem(invoiceItem);
       }
@@ -194,6 +195,7 @@ print(DateTime.now().millisecondsSinceEpoch);
       debugPrint('Invoice and items saved successfully.');
     } catch (e) {
       debugPrint('Error saving invoice: $e');
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Failed to save the invoice.'),
@@ -225,6 +227,11 @@ print(DateTime.now().millisecondsSinceEpoch);
     bool isScreenBigger = size.width > 1000;
     bool isScreenSmaller = size.width <= 1000;
     final menuProvider = Provider.of<MenuItemsProvider>(context);
+    final business =
+        context.watch<BusinessProfileProvider>().profile;
+    final String restaurantName = business.restaurantName;
+    final String restaurantAddress = business.address;
+    final String footerText = business.footerText;
     final filteredMenuItems = menuProvider.menuItems
         .where((menuItem) =>
             menuItem.itemName.toLowerCase().contains(searchQuery.toLowerCase()))
@@ -244,7 +251,7 @@ print(DateTime.now().millisecondsSinceEpoch);
       resizeToAvoidBottomInset: false,
       appBar: !Responsive.isTablet(context) && !Responsive.isDesktop(context)
           ? AppBar(
-              title: Text('Dashboard'),
+              title: const Text('Create Invoice'),
               actions: [
                 InkWell(
                   onTap: () {
@@ -320,9 +327,8 @@ print(DateTime.now().millisecondsSinceEpoch);
                         ),
                       ],
                     ),
-                    child: StreamBuilder<Object>(
-                        stream: null,
-                        builder: (context, snapshot) {
+                    child: Builder(
+                        builder: (context) {
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.center,
                             mainAxisAlignment: MainAxisAlignment.start,
@@ -354,7 +360,7 @@ print(DateTime.now().millisecondsSinceEpoch);
                                           child: Column(
                                             children: [
                                               Text(
-                                                "NAAZ RESTAURANT",
+                                                restaurantName,
                                                 style: TextStyle(
                                                   fontSize: 24,
                                                   fontWeight: FontWeight.bold,
@@ -363,7 +369,7 @@ print(DateTime.now().millisecondsSinceEpoch);
                                               ),
                                               SizedBox(height: 4),
                                               Text(
-                                                "Lilong Bazar - 795135",
+                                                restaurantAddress,
                                                 style: TextStyle(
                                                   fontSize: 16,
                                                   color: Colors.grey[600],
@@ -658,7 +664,7 @@ print(DateTime.now().millisecondsSinceEpoch);
                                       ),
                                       Center(
                                         child: Text(
-                                          "Tank You, Visit Again",
+                                          footerText,
                                           style: TextStyle(
                                             color: Colors.grey[700],
                                             fontWeight: FontWeight.bold,
@@ -803,12 +809,14 @@ print(DateTime.now().millisecondsSinceEpoch);
                                               key: _formKey,
                                               child: TextFormField(
                                                 validator: (value) {
-                                                  if (value!.isNotEmpty &&
-                                                      (value == null ||
-                                                          value.isEmpty)) {
-                                                    return 'Please enter Paid AMount';
+                                                  if (value == null ||
+                                                      value.isEmpty) {
+                                                    return 'Please enter Paid Amount';
                                                   }
-
+                                                  if (double.tryParse(value) ==
+                                                      null) {
+                                                    return 'Enter a valid amount';
+                                                  }
                                                   return null;
                                                 },
                                                 keyboardType:
@@ -1038,6 +1046,10 @@ print(DateTime.now().millisecondsSinceEpoch);
 
   // Function to show the bottom sheet
   void _openBottomSheet(BuildContext context) {
+    final business = context.read<BusinessProfileProvider>().profile;
+    final String restaurantName = business.restaurantName;
+    final String restaurantAddress = business.address;
+    final String footerText = business.footerText;
     showModalBottomSheet(
       backgroundColor: Colors.transparent,
       enableDrag: true,
@@ -1065,9 +1077,8 @@ print(DateTime.now().millisecondsSinceEpoch);
                     ),
                   ],
                 ),
-                child: StreamBuilder<Object>(
-                    stream: null,
-                    builder: (context, snapshot) {
+                child: Builder(
+                    builder: (context) {
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [

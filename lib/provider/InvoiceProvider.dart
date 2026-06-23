@@ -3,132 +3,187 @@ import 'package:hive_flutter/hive_flutter.dart';
 import '../model/invoice_items_model.dart';
 import '../model/invoice_model.dart';
 
+/// Provider responsible for the `invoices` and `invoice_items` Hive boxes.
+///
+/// Keeps in-memory caches in sync with Hive and provides helpers for
+/// cascading deletes (deleting an invoice also deletes its line items).
 class InvoiceProvider with ChangeNotifier {
-  late Box<Invoice> _invoiceBox;
-  late Box<InvoiceItem> _invoiceItemBox;
-  // Constructor now initializes the boxes asynchronously
+  late final Box<Invoice> _invoiceBox;
+  late final Box<InvoiceItem> _invoiceItemBox;
+
   InvoiceProvider() {
+    _invoiceBox = Hive.box<Invoice>('invoices');
+    _invoiceItemBox = Hive.box<InvoiceItem>('invoice_items');
     loadInvoices();
     loadInvoiceItems();
-    _invoiceBox = Hive.box<Invoice>('invoices');  // Get the already opened box
-    _invoiceItemBox = Hive.box<InvoiceItem>('invoice_items');
   }
-  // Store invoices and invoice items as lists
-  List<Invoice> _invoices = [];
-  List<InvoiceItem> _invoiceItems = [];
 
-// Getter for invoices to expose the list
+  final List<Invoice> _invoices = [];
+  final List<InvoiceItem> _invoiceItems = [];
+
+  /// Cached list of invoices.
   List<Invoice> get invoices => _invoices;
 
-// Load invoices from Hive and update the invoices list
-  void loadInvoices() {
-    final invoiceBox = Hive.box<Invoice>('invoices'); // Corrected naming
-    _invoices = invoiceBox.values.toList();
-    notifyListeners();
-  }
-
-// Getter for invoice items to expose the list
+  /// Cached list of all invoice items (across all invoices).
   List<InvoiceItem> get invoiceItems => _invoiceItems;
 
-// Load invoice items from Hive and update the invoiceItems list
-  void loadInvoiceItems() {
-    final invoiceItemBox = Hive.box<InvoiceItem>('invoice_items'); // Corrected type and naming
-    _invoiceItems = invoiceItemBox.values.toList();
+  /// Reload invoices from Hive into the cache.
+  void loadInvoices() {
+    _invoices
+      ..clear()
+      ..addAll(_invoiceBox.values.toList());
     notifyListeners();
   }
-  // Fetch items for a specific invoice
+
+  /// Reload invoice items from Hive into the cache.
+  void loadInvoiceItems() {
+    _invoiceItems
+      ..clear()
+      ..addAll(_invoiceItemBox.values.toList());
+    notifyListeners();
+  }
+
+  /// Fetch items belonging to a specific invoice.
   List<InvoiceItem> getItemsForInvoice(int invoiceId) {
-    final invoiceIdStr = invoiceId.toString(); // Convert int to String
-    print(_invoiceItems.where((item) => item.invoiceId == invoiceIdStr).toList());
-    return _invoiceItems.where((item) => item.invoiceId == invoiceIdStr).toList();
+    final invoiceIdStr = invoiceId.toString();
+    return _invoiceItems
+        .where((item) => item.invoiceId == invoiceIdStr)
+        .toList();
   }
 
+  /// Generates a stable, monotonically increasing ID for a new invoice.
+  int _nextId() {
+    if (_invoiceBox.isEmpty) {
+      return DateTime.now().millisecondsSinceEpoch;
+    }
+    final keys = _invoiceBox.keys;
+    int maxId = 0;
+    for (final k in keys) {
+      if (k is int && k > maxId) maxId = k;
+    }
+    return maxId + 1;
+  }
 
-  // Add an invoice to Hive box
+  /// Generates a stable, monotonically increasing ID for a new invoice item.
+  int _nextItemId() {
+    if (_invoiceItemBox.isEmpty) {
+      return DateTime.now().millisecondsSinceEpoch;
+    }
+    final keys = _invoiceItemBox.keys;
+    int maxId = 0;
+    for (final k in keys) {
+      if (k is int && k > maxId) maxId = k;
+    }
+    return maxId + 1;
+  }
+
+  /// Add an invoice. If [invoice.id] is 0, a new auto-incremented id is used.
   void addInvoice(Invoice invoice) {
-    if (_invoiceBox.isOpen) {
-      _invoiceBox.put(invoice.id, invoice); // Store the invoice in Hive box using the id as the key
-      loadInvoices(); // Reload the invoices to sync with the local list
-      notifyListeners(); // Notify listeners
-    }
+    if (!_invoiceBox.isOpen) return;
+    final id = invoice.id == 0 ? _nextId() : invoice.id;
+    final toStore = invoice.id == 0
+        ? Invoice(
+            id: id,
+            userId: invoice.userId,
+            name: invoice.name,
+            phone: invoice.phone,
+            address: invoice.address,
+            status: invoice.status,
+            subtotal: invoice.subtotal,
+            discount: invoice.discount,
+            taxRate: invoice.taxRate,
+            amountPaid: invoice.amountPaid,
+            paymentType: invoice.paymentType,
+            createdAt: invoice.createdAt,
+          )
+        : invoice;
+    _invoiceBox.put(id, toStore);
+    loadInvoices();
+    notifyListeners();
   }
 
-  // Add an invoice item to Hive box
+  /// Add an invoice item. If [invoiceItem.id] is null, an auto-incremented id
+  /// is assigned.
   void addInvoiceItem(InvoiceItem invoiceItem) {
-    if (_invoiceItemBox.isOpen) {
-      _invoiceItemBox.put(invoiceItem.id, invoiceItem); // Store the invoice item in Hive box using the id as the key
-      loadInvoiceItems(); // Reload the invoice items to sync with the local list
-      notifyListeners(); // Notify listeners
-    }
+    if (!_invoiceItemBox.isOpen) return;
+    final id = invoiceItem.id ?? _nextItemId();
+    final toStore = InvoiceItem(
+      id: id,
+      invoiceId: invoiceItem.invoiceId,
+      itemName: invoiceItem.itemName,
+      quantity: invoiceItem.quantity,
+      price: invoiceItem.price,
+      total: invoiceItem.total,
+    );
+    _invoiceItemBox.put(id, toStore);
+    loadInvoiceItems();
+    notifyListeners();
   }
-// Fetch and restore invoices and invoice items
+
+  /// Restore invoices from a backup JSON list.
   Future<void> restoreInvoices(List<dynamic> invoices) async {
     try {
-      // Check if the box is initialized
-      if (_invoiceBox != null) {
-        if (invoices != null) {
-          // Convert the list into a Map for batch insertion
-          final dataMap = {
-            for (var invoice in invoices) invoice['id']: Invoice.fromJson(invoice)
-          };
-
-          // Use putAll for batch insertions into Hive
-          await _invoiceBox.putAll(dataMap);
-          _invoices = _invoiceBox.values.toList();
-          // Refresh in-memory data
-          notifyListeners();
-          debugPrint('Invoices restored successfully.');
-        }
-      } else {
-        debugPrint('Error: Invoice box is not initialized.');
-      }
+      if (invoices.isEmpty) return;
+      final dataMap = <int, Invoice>{
+        for (var invoice in invoices)
+          (invoice['id'] as int?) ?? 0: Invoice.fromJson(invoice as Map<String, dynamic>),
+      };
+      await _invoiceBox.putAll(dataMap);
+      _invoices
+        ..clear()
+        ..addAll(_invoiceBox.values.toList());
+      notifyListeners();
+      debugPrint('Invoices restored successfully.');
     } catch (e) {
       debugPrint('Error restoring invoices: $e');
     }
   }
 
+  /// Restore invoice items from a backup JSON list.
   Future<void> restoreInvoiceItems(List<dynamic> invoiceItems) async {
     try {
-      // Check if the box is initialized
-      if (_invoiceItemBox != null) {
-        if (invoiceItems != null) {
-          // Convert the list into a Map for batch insertion
-          final dataMap = {
-            for (var item in invoiceItems) item['id']: InvoiceItem.fromJson(item)
-          };
-
-          // Use putAll for batch insertions into Hive
-          await _invoiceItemBox.putAll(dataMap);
-          _invoiceItems = _invoiceItemBox.values.toList();
-          // Refresh in-memory data
-          notifyListeners();
-          debugPrint('Invoice items restored successfully.');
-        }
-      } else {
-        debugPrint('Error: Invoice items box is not initialized.');
-      }
+      if (invoiceItems.isEmpty) return;
+      final dataMap = <int, InvoiceItem>{
+        for (var item in invoiceItems)
+          (item['id'] as int?) ?? 0: InvoiceItem.fromJson(item as Map<String, dynamic>),
+      };
+      await _invoiceItemBox.putAll(dataMap);
+      _invoiceItems
+        ..clear()
+        ..addAll(_invoiceItemBox.values.toList());
+      notifyListeners();
+      debugPrint('Invoice items restored successfully.');
     } catch (e) {
       debugPrint('Error restoring invoice items: $e');
     }
   }
 
-  // Delete an invoice
+  /// Delete an invoice **and** all of its line items (cascading delete).
   void deleteInvoice(int id) {
-    if (_invoiceBox.isOpen) {
-      _invoiceBox.delete(id); // Remove the invoice from Hive using its ID
-      loadInvoices(); // Reload invoices to update the list
-      notifyListeners(); // Notify listeners
+    if (!_invoiceBox.isOpen) return;
+    _invoiceBox.delete(id);
+    // Cascade: remove orphan invoice items belonging to this invoice.
+    final invoiceIdStr = id.toString();
+    final orphanKeys = <int>[];
+    for (final entry in _invoiceItemBox.toMap().entries) {
+      final item = entry.value;
+      if (item.invoiceId == invoiceIdStr) {
+        orphanKeys.add(entry.key as int);
+      }
     }
+    for (final key in orphanKeys) {
+      _invoiceItemBox.delete(key);
+    }
+    loadInvoices();
+    loadInvoiceItems();
+    notifyListeners();
   }
 
-  // Delete an invoice item
+  /// Delete a single invoice item by its id.
   void deleteInvoiceItem(int id) {
-    if (_invoiceItemBox.isOpen) {
-      _invoiceItemBox.delete(id); // Remove the invoice item from Hive using its ID
-      loadInvoiceItems(); // Reload invoice items to update the list
-      notifyListeners(); // Notify listeners
-    }
+    if (!_invoiceItemBox.isOpen) return;
+    _invoiceItemBox.delete(id);
+    loadInvoiceItems();
+    notifyListeners();
   }
-
-// Method to get a specific invoice by its ID
 }

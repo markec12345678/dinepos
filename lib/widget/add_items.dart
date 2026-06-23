@@ -1,14 +1,12 @@
 import 'dart:io';
-import 'dart:math';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 import '../model/menuItem.dart';
 import '../provider/MenuProvider.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../utils/const.dart';
+import '../utils/image_storage.dart';
 
 class AddMenuItem extends StatefulWidget {
   @override
@@ -63,20 +61,12 @@ class _AddMenuItemState extends State<AddMenuItem> {
     super.dispose();
   }
   Future<Directory> getWritableDirectory() async {
-    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-      // Use the user's home directory or a custom folder
-      final home = Directory.current;
-      return Directory('${home.path}/dbImage')..createSync(recursive: true);
-    } else {
-      // Use standard app document directory for mobile platforms
-      return getApplicationDocumentsDirectory();
-    }
+    return ImageStorage.getWritableDirectory();
   }
   // Method to pick an image from the gallery or camera
   Future<void> _pickImage() async {
     try {
-      // Pick an image file
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
+      FilePickerResult? result = await FilePicker.pickFiles(
         type: FileType.image,
       );
 
@@ -86,23 +76,14 @@ class _AddMenuItemState extends State<AddMenuItem> {
         if (filePath != null) {
           final originalFile = File(filePath);
 
-          // Check if file exists
           if (await originalFile.exists()) {
-            // Get writable directory based on platform
-            final directory = await getWritableDirectory();
             final fileName = result.files.single.name;
+            final targetFilePath = await ImageStorage.copyPickedImage(filePath, fileName);
 
-            // Construct the target path
-            final targetFilePath = '${directory.path}/$fileName';
-
-            // Copy the file to the target directory
-            final copiedFile = await originalFile.copy(targetFilePath);
-
-            // Update the state with the new file path
             setState(() {
-              _imageFile = copiedFile;
+              _imageFile = targetFilePath != null ? File(targetFilePath) : null;
             });
-            print('File copied to: $targetFilePath');
+            debugPrint('File copied to: $targetFilePath');
           } else {
             throw Exception('File not found at path: $filePath');
           }
@@ -110,10 +91,15 @@ class _AddMenuItemState extends State<AddMenuItem> {
           throw Exception('Selected file path is null.');
         }
       } else {
-        print('No file selected.');
+        debugPrint('No file selected.');
       }
     } catch (e) {
-      print('An error occurred while picking the file: $e');
+      debugPrint('An error occurred while picking the file: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Image pick failed: $e')),
+        );
+      }
     }
   }
 
@@ -404,9 +390,10 @@ class _AddMenuItemState extends State<AddMenuItem> {
         ElevatedButton(
           onPressed: () {
             if (_formKey.currentState!.validate()) {
-              final randomId = Random().nextInt(100000);  // Random ID between 0 and 999999
+              // id=0 lets the provider assign a stable auto-increment id
+              // (replaces the previous Random().nextInt(100000) collision risk).
               final newMenuItem = MenuItem(
-                id: randomId,
+                id: 0,
                 itemName: _nameController.text,
                 price: double.tryParse(_priceController.text) ?? 0.0,
                 offerPrice: double.tryParse(_offerPriceController.text) ?? 0.0,
@@ -418,11 +405,9 @@ class _AddMenuItemState extends State<AddMenuItem> {
                 imageUrl: _imageFile?.path ?? "", // Save the image path
               );
 
-              // Get the MenuProvider from the context
               final menuProvider = Provider.of<MenuItemsProvider>(context, listen: false);
               menuProvider.addMenuItem(newMenuItem);
               clearFields(); // Clear fields without closing the dialog
-              // Get.back();
             }
           },
           child: Text('Add Item'),

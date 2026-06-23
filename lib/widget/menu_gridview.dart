@@ -1,6 +1,4 @@
 import 'dart:io';
-import 'package:badges/badges.dart';
-import 'package:dinepos/widget/unit_icons.dart';
 import 'package:flutter/material.dart';
 import '../model/invoice_items_model.dart';
 import '../model/menuItem.dart';
@@ -30,7 +28,6 @@ class _MenuScreenState extends State<MenuScreen> {
   @override
   Widget build(BuildContext context) {
     final Size size = MediaQuery.of(context).size;
-    print(size.width);
     return Expanded(
       child: Responsive(
         mobile: MenuGridView(
@@ -117,7 +114,7 @@ class _MenuGridViewState extends State<MenuGridView> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  _buildItemImage(item.imageUrl ?? '', item.category), // Updated image with category badge
+                  _buildItemImage(item.imageUrl, item.category), // Updated image with category badge
 
 
                     Text(item.itemName),
@@ -125,25 +122,25 @@ class _MenuGridViewState extends State<MenuGridView> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-
-                      Text(
-                        ' ₹${item.price.toStringAsFixed(2)}',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.redAccent,
-                          decoration: TextDecoration.lineThrough,
+                      // Show original price strikethrough only when an offer exists.
+                      if (item.offerPrice > 0)
+                        Text(
+                          ' ₹${item.price.toStringAsFixed(2)}',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.redAccent,
+                            decoration: TextDecoration.lineThrough,
+                          ),
                         ),
-                      ),
-                      SizedBox(width: 5),
+                      if (item.offerPrice > 0) SizedBox(width: 5),
                       Text(
-                        '₹${item.offerPrice.toStringAsFixed(2)}',
+                        '₹${(item.offerPrice > 0 ? item.offerPrice : item.price).toStringAsFixed(2)}',
                         style: TextStyle(
                           fontSize: 16,
                           color: Colors.greenAccent,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-
                     ],
                   ),
                   SizedBox(height: 5),
@@ -237,7 +234,7 @@ class _MenuGridViewState extends State<MenuGridView> {
 
 Widget _buildItemImage(String imageUrl, String category) {
   return Expanded(
-    child: imageUrl != null && imageUrl.isNotEmpty
+    child: imageUrl.isNotEmpty
         ? Image.file(
       File(imageUrl),
       fit: BoxFit.cover,
@@ -247,9 +244,11 @@ Widget _buildItemImage(String imageUrl, String category) {
         color: Colors.grey,
       ),
     )
-        : Image.network(
-      'https://via.placeholder.com/150',
-      fit: BoxFit.cover,
+        : Container(
+      color: Colors.grey.shade300,
+      child: Center(
+        child: Icon(Icons.fastfood, size: 50, color: Colors.grey),
+      ),
     ),
   );
 }
